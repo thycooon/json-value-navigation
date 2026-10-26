@@ -33,7 +33,7 @@ dist/
 out/
 
 # Packaged VS Code extension
-*.vsix
+# *.vsix
 
 # Local-only configuration
 .vscode/settings.json
