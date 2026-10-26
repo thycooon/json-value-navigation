@@ -134,4 +134,5 @@ If you host the project on GitHub, add your repository URL here so users can fin
 
 ## License
 
-Add a `LICENSE` file and specify your chosen license before publishing the extension publicly.
+This extension is distributed under the terms specified in [LICENSE.md](LICENSE.md).
+See that file for permitted use and restrictions on modification and redistribution.
