@@ -1,0 +1,39 @@
+
+# Dependencies
+node_modules/
+
+# VS Code extension test downloads and temporary files
+.vscode-test/
+
+# Logs and debug output
+npm-debug.log*
+yarn-debug.log*
+*.log
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor temporary files
+*.swp
+*.swo
+*~
+
+# Generated test/build output
+coverage/
+dist/
+out/
+
+# Packaged VS Code extension
+*.vsix
+
+# Local-only configuration
+.vscode/settings.json

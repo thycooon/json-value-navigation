@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "target": "ES2022",
+    "module": "commonjs",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "maxNodeModuleJsDepth": 0,
+    "types": [
+      "node",
+      "mocha"
+    ]
+  },
+  "exclude": [
+    "node_modules",
+    ".vscode-test"
+  ]
+}

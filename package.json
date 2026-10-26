@@ -1,0 +1,50 @@
+{
+  "name": "json-value-navigation",
+  "author": {
+    "name":"thycooon"
+  },
+  "displayName": "JSON Value Navigation",
+  "description": "Navigate between JSON values",
+  "license": "MIT",
+  "version": "1.0.0",
+  "publisher": "thycooon",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "jsonValueNavigation.next",
+        "title": "JSON: Next Value"
+      },
+      {
+        "command": "jsonValueNavigation.previous",
+        "title": "JSON: Previous Value"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "jsonValueNavigation.next",
+        "key": "ctrl+alt+shift+right",
+        "when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
+      },
+      {
+        "command": "jsonValueNavigation.previous",
+        "key": "ctrl+alt+shift+left",
+        "when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.80.0",
+    "globals": "^17.13.0",
+    "typescript": "^7.0.2"
+  }
+}
