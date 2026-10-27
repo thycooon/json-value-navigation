@@ -6,8 +6,12 @@
 	"displayName": "JSON Value Navigation",
 	"description": "Navigate between JSON values",
 	"license": "MIT",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"publisher": "thycooon",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/thycooon/json-value-navigation.git"
+	},
 	"engines": {
 		"vscode": "^1.80.0"
 	},
