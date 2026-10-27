@@ -55,18 +55,18 @@
 				},
 				"jsonValueNavigation.iterateContainerItems": {
 					"type": "boolean",
-					"default": false,
+					"default": true,
 					"description": "When entering nested containers, navigate through inner values one by one. If disabled, arrays/objects are selected as whole values."
 				},
 				"jsonValueNavigation.ignoreTopLevelArrayWrapper": {
 					"type": "boolean",
-					"default": true,
+					"default": false,
 					"description": "Treat a single top-level JSON array as a wrapper. Its immediate items are navigable even when nested container traversal is disabled."
 				},
 				"jsonValueNavigation.minNestingLevel": {
 					"type": "integer",
 					"default": 0,
-					"minimum": 2,
+					"minimum": 0,
 					"description": "Minimum JSON nesting level to include in navigation targets. Root value is level 0, its direct children are level 1, etc."
 				}
 			}
