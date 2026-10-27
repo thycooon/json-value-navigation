@@ -1,0 +1,8 @@
+[
+    {"prop1":"val1","prop2":"val2","array1":["item1","item2"],"array2":[],"whatever":{"subprop1":"","subprop2":2,"subprop3":[]},"whatever_string":""},
+    {"prop1":"val1","prop2":"val2","array1":["item1","item2"],"array2":[],"whatever":{"subprop1":"","subprop2":2,"subprop3":["subitem1"]},"whatever_string":""},
+    {"prop1":"val1","prop2":"val2","array1":[],"array2":[],"whatever":{},"whatever_string":""},
+    {"prop1":"val1","prop2":null,"array1":["item1","item2"],"array2":[],"whatever_string":""},
+    {"prop1":"val1","prop2":"val2","whatever_string":"","array1":["item1"],"array2":[],"whatever_string2":""},
+    {"prop1":"val1","prop2":"val2","whatever_string":"","array1":["item1"],"array2":[]}
+]

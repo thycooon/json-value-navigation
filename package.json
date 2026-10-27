@@ -1,50 +1,78 @@
 {
-  "name": "json-value-navigation",
-  "author": {
-    "name":"thycooon"
-  },
-  "displayName": "JSON Value Navigation",
-  "description": "Navigate between JSON values",
-  "license": "MIT",
-  "version": "1.0.0",
-  "publisher": "thycooon",
-  "engines": {
-    "vscode": "^1.80.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [],
-  "main": "./extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "jsonValueNavigation.next",
-        "title": "JSON: Next Value"
-      },
-      {
-        "command": "jsonValueNavigation.previous",
-        "title": "JSON: Previous Value"
-      }
-    ],
-    "keybindings": [
-      {
-        "command": "jsonValueNavigation.next",
-        "key": "ctrl+alt+shift+right",
-        "when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
-      },
-      {
-        "command": "jsonValueNavigation.previous",
-        "key": "ctrl+alt+shift+left",
-        "when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
-      }
-    ]
-  },
-  "devDependencies": {
-    "@types/mocha": "^10.0.10",
-    "@types/node": "^26.6.5",
-    "@types/vscode": "^1.80.0",
-    "globals": "^17.13.0",
-    "typescript": "^7.0.2"
-  }
+	"name": "json-value-navigation",
+	"author": {
+		"name": "thycooon"
+	},
+	"displayName": "JSON Value Navigation",
+	"description": "Navigate between JSON values",
+	"license": "MIT",
+	"version": "1.0.0",
+	"publisher": "thycooon",
+	"engines": {
+		"vscode": "^1.80.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onLanguage:json"
+	],
+	"main": "./extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "jsonValueNavigation.next",
+				"title": "JSON Value Navigation: Next Value"
+			},
+			{
+				"command": "jsonValueNavigation.previous",
+				"title": "JSON Value Navigation: Previous Value"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "jsonValueNavigation.next",
+				"key": "ctrl+alt+shift+right",
+				"when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
+			},
+			{
+				"command": "jsonValueNavigation.previous",
+				"key": "ctrl+alt+shift+left",
+				"when": "editorTextFocus && (editorLangId == json || editorLangId == jsonc)"
+			}
+		],
+		"configuration": {
+			"title": "JSON Value Navigation",
+			"properties": {
+				"jsonValueNavigation.enterNestedContainers": {
+					"type": "boolean",
+					"default": true,
+					"description": "Navigate into non-empty JSON objects and arrays instead of treating each container as a single value."
+				},
+				"jsonValueNavigation.iterateContainerItems": {
+					"type": "boolean",
+					"default": false,
+					"description": "When entering nested containers, navigate through inner values one by one. If disabled, arrays/objects are selected as whole values."
+				},
+				"jsonValueNavigation.ignoreTopLevelArrayWrapper": {
+					"type": "boolean",
+					"default": true,
+					"description": "Treat a single top-level JSON array as a wrapper. Its immediate items are navigable even when nested container traversal is disabled."
+				},
+				"jsonValueNavigation.minNestingLevel": {
+					"type": "integer",
+					"default": 0,
+					"minimum": 2,
+					"description": "Minimum JSON nesting level to include in navigation targets. Root value is level 0, its direct children are level 1, etc."
+				}
+			}
+		}
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.10",
+		"@types/node": "^26.6.5",
+		"@types/vscode": "^1.80.0",
+		"globals": "^17.13.0",
+		"typescript": "^7.0.2"
+	}
 }
