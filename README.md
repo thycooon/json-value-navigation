@@ -24,6 +24,7 @@ Open **Settings** and search for `JSON Value Navigation`, or edit your `settings
 | `jsonValueNavigation.enterNestedContainers` | `true` | Enter nested objects and arrays rather than treating every container as one value. |
 | `jsonValueNavigation.iterateContainerItems` | `true` | When entering arrays, visit their items individually. When disabled, treat an array as a single value. |
 | `jsonValueNavigation.ignoreTopLevelArrayWrapper` | `true` | Skip the outermost array wrapper and navigate its items directly when the JSON document's root is an array. |
+| `jsonValueNavigation.minNestingLevel` | `integer` | Skip the specified amount of nesting and navigate its items directly when the JSON document's root should not be considered as navigateable object. |
 
 ### Example settings
 
@@ -31,7 +32,8 @@ Open **Settings** and search for `JSON Value Navigation`, or edit your `settings
 {
   "jsonValueNavigation.enterNestedContainers": true,
   "jsonValueNavigation.iterateContainerItems": true,
-  "jsonValueNavigation.ignoreTopLevelArrayWrapper": true
+  "jsonValueNavigation.ignoreTopLevelArrayWrapper": false,
+  "jsonValueNavigation.minNestingLevel": 0
 }
 ```
 
@@ -73,7 +75,7 @@ Given:
 }
 ```
 
-With container-item navigation enabled, navigation visits `apple`, `banana`, and `cherry` individually.
+With ```container-item navigation``` enabled, navigation visits `apple`, `banana`, and `cherry` individually.
 
 ### Navigate through nested values
 
@@ -89,7 +91,7 @@ Given:
 }
 ```
 
-When nested-container navigation is enabled, navigation follows the values inside the object and array in document order. Depending on the settings, a container can instead be treated as one value.
+When ```nested-container navigation``` is enabled, navigation follows the values inside the object and array in document order. Depending on the settings, a container can instead be treated as one value.
 
 ### Navigate a root array
 
@@ -103,6 +105,45 @@ Given:
 ```
 
 When `ignoreTopLevelArrayWrapper` is enabled, navigation can move through the root array's items without stopping on the outer array itself.
+
+### Navigate with minimum level of nesting
+
+```json
+[
+  {
+    "user_details": {
+      "name": "Alice",
+      "active": true,
+      "management_details": {
+        "account_age":93,
+        "roles":["user"],
+        "previous_timeouts":[],
+        "previous_bans":[]
+      }
+    },
+    "user_scores": [4, 23],
+  },
+  {
+    "user_details": {
+      "name": "John",
+      "active": true,
+      "management_details": {
+        "account_age":1023,
+        "roles":["user","moderator"],
+        "previous_timeouts":[],
+        "previous_bans":[]
+      }
+    },
+    "user_scores": [12, 20,100,200],
+  }
+]
+```
+In this example, when `minNestingLevel` is set to:
+- 2 -> the first level of objects (the user object) is seen as the base for navigation
+- 3 -> the second level of objects (the user_details and the user_scores) is seen as the base for navigation
+- 3 -> the third level of objects (the management_details) is seen as the base for navigation
+
+This option is intended to help navigation when ```nested-container navigation``` is disabled, but there are wrapper arrays or objects that would break that jumping behavior.
 
 ## Installation
 
