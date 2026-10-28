@@ -6,7 +6,19 @@
 	"displayName": "JSON Value Navigation",
 	"description": "Navigate between JSON values",
 	"license": "MIT",
-	"version": "1.1.0",
+	"version": "1.1.3",
+	"configurations": [
+		{
+		"name": "Launch Extension",
+		"type": "extensionHost",
+		"request": "launch",
+		"runtimeExecutable": "${execPath}",
+		"args": [
+			"--extensionDevelopmentPath=${workspaceFolder}",
+			"--verbose" 
+		]
+		}
+	],
 	"publisher": "thycooon",
 	"repository": {
 		"type": "git",
@@ -57,11 +69,6 @@
 					"type": "boolean",
 					"default": true,
 					"description": "When entering nested containers, navigate through inner values one by one. If disabled, arrays/objects are selected as whole values."
-				},
-				"jsonValueNavigation.ignoreTopLevelArrayWrapper": {
-					"type": "boolean",
-					"default": false,
-					"description": "Treat a single top-level JSON array as a wrapper. Its immediate items are navigable even when nested container traversal is disabled."
 				},
 				"jsonValueNavigation.minNestingLevel": {
 					"type": "integer",

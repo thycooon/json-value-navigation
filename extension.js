@@ -1,71 +1,51 @@
 const vscode = require("vscode");
 
-/**
- * @typedef {{ start: vscode.Position, end: vscode.Position }} ValueRange
- */
-
-/**
- * @typedef {"string"|"number"|"true"|"false"|"null"|"array"|"object"} JsonType
- */
-
-/**
- * @typedef {{
- *   type: JsonType,
- *   start: number, // value start offset (opening quote/bracket/token start)
- *   end: number,   // value end offset (exclusive)
- *   children?: JsonNode[]
- * }} JsonNode
- */
-
-/**
- * @typedef {{
- *   startOffset: number,
- *   endOffset: number,
- *   range: ValueRange
- * }} NavValue
- */
-
 /** @type {vscode.TextDocument | null} */
 let __doc = null;
-/** @type {Map<number, vscode.Position> | null} */
-let __posCache = null;
+/** @type {Map<number, vscode.Position>} */
+let __posCache = new Map();
 
 /**
  * @param {vscode.ExtensionContext} context
- * @returns {void}
  */
 function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand("jsonValueNavigation.next", () => navigate(1)),
     vscode.commands.registerCommand("jsonValueNavigation.previous", () => navigate(-1)),
-    vscode.window.onDidChangeActiveTextEditor(
-      /** @param {vscode.TextEditor | undefined} editor */ (editor) => {
-        __doc = editor ? editor.document : null;
-        __posCache = null;
-      }
-    )
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      __doc = null;
+      __posCache = new Map();
+    })
   );
 }
 
-/** @returns {void} */
 function deactivate() {}
 
 module.exports = { activate, deactivate };
 
+// ──────────────────────────────────────────────────────────
+// Navigation entry point
+// ──────────────────────────────────────────────────────────
+
 /**
- * @param {number} direction
- * @returns {void}
+ * @param {number} direction  1 = next, -1 = previous
  */
 function navigate(direction) {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.document.languageId !== "json") return;
+  if (!editor) return;
+  if (editor.document.languageId !== "json" && editor.document.languageId !== "jsonc") return;
 
   const document = editor.document;
   const text = document.getText();
-  __doc = document;
-  __posCache = new Map();
 
-  /** @type {{root: JsonNode | null, wrapperArray: JsonNode | null}} */
+  // Reset position cache if document changed
+  if (__doc !== document) {
+    __doc = document;
+    __posCache = new Map();
+  }
+
+  // Parse
+  /** @type {{ root: JsonNode | null }} */
   let parsed;
   try {
     parsed = parseJsonTree(text);
@@ -74,72 +54,150 @@ function navigate(direction) {
   }
   if (!parsed.root) return;
 
+  // Read settings
   const cfg = vscode.workspace.getConfiguration("jsonValueNavigation");
-  const enterNestedContainers = cfg.get("enterNestedContainers", true);
-  const iterateContainerItems = cfg.get("iterateContainerItems", true);
-  const ignoreTopLevelArrayWrapper = cfg.get("ignoreTopLevelArrayWrapper", true);
+  /** @type {{ enterNestedContainers: boolean, iterateContainerItems: boolean, minNestingLevel: number }} */
+  const opts = {
+    enterNestedContainers: /** @type {boolean} */ (cfg.get("enterNestedContainers", false)),
+    iterateContainerItems: /** @type {boolean} */ (cfg.get("iterateContainerItems", false)),
+    minNestingLevel: Math.max(0, /** @type {number} */ (cfg.get("minNestingLevel", 0)))
+  };
 
-  const values = buildNavigationValues(parsed.root, {
-    enterNestedContainers,
-    iterateContainerItems,
-    ignoreTopLevelArrayWrapper,
-    wrapperArray: parsed.wrapperArray
-  });
+  // Build targets
+  const targets = buildNavigationValues(parsed.root, opts);
+  if (targets.length === 0) return;
 
-  if (values.length === 0) return;
+  // Find the right target relative to cursor
+  const cursorOffset = document.offsetAt(editor.selection.active);
 
-  const nextSelections = editor.selections.map((selection) => {
-    // stable anchor for both directions
-    const anchor = selection.isEmpty ? selection.active : selection.end;
-    const anchorOffset = document.offsetAt(anchor);
-
-    const idx = direction > 0
-      ? findNextIndex(values, anchorOffset)
-      : findPrevIndex(values, anchorOffset);
-
-    if (idx < 0) return selection;
-
-    const target = values[idx];
-    return new vscode.Selection(target.range.start, target.range.end);
-  });
-
-  editor.selections = nextSelections;
-
-  if (editor.selection) {
-    editor.revealRange(
-      new vscode.Range(editor.selection.start, editor.selection.end),
-      vscode.TextEditorRevealType.InCenter
-    );
+  /** @type {number} */
+  let targetIndex = -1;
+  if (direction === 1) {
+    for (let i = 0; i < targets.length; i++) {
+      if (targets[i].startOffset > cursorOffset) {
+        targetIndex = i;
+        break;
+      }
+    }
+  } else {
+    for (let i = targets.length - 1; i >= 0; i--) {
+      if (targets[i].endOffset < cursorOffset) {
+        targetIndex = i;
+        break;
+      }
+    }
   }
+  if (targetIndex === -1) return;
+
+  const t = targets[targetIndex];
+  const range = new vscode.Range(
+    posAt(document, t.rangeStart),
+    posAt(document, t.rangeEnd)
+  );
+
+  editor.selection = new vscode.Selection(range.start, range.end);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+// ──────────────────────────────────────────────────────────
+// Target-building logic (core)
+// ──────────────────────────────────────────────────────────
+
+/**
+ * @typedef {{ startOffset: number, endOffset: number, rangeStart: number, rangeEnd: number }} Target
+ *   startOffset / endOffset – full JSON value extent (incl. quotes/brackets) – used for navigation
+ *   rangeStart / rangeEnd   – actual visual selection (without quotes/brackets)
+ */
+
+/**
+ * @param {JsonNode} root
+ * @param {{ enterNestedContainers: boolean, iterateContainerItems: boolean, minNestingLevel: number }} opts
+ * @returns {Target[]}
+ */
+function buildNavigationValues(root, opts) {
+  /** @type {Target[]} */
+  const out = [];
+  collect(root, opts, out);
+  out.sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset);
+  return out;
 }
 
 /**
- * @param {NavValue[]} values
- * @param {number} anchorOffset
- * @returns {number}
+ * Recursively collect navigation targets.
+ *
+ * @param {JsonNode} node
+ * @param {{ enterNestedContainers: boolean, iterateContainerItems: boolean, minNestingLevel: number }} opts
+ * @param {Target[]} out
  */
-function findNextIndex(values, anchorOffset) {
-  for (let i = 0; i < values.length; i++) {
-    if (values[i].startOffset > anchorOffset) return i;
+function collect(node, opts, out) {
+  const isContainer = node.type === "object" || node.type === "array";
+
+  // --- Below minimum nesting level: container → transparent, primitive → skip ---
+  if (node.depth < opts.minNestingLevel) {
+    if (isContainer) {
+      const children = node.children || [];
+      for (const c of children) collect(c, opts, out);
+    }
+    return;
   }
-  return -1;
+
+  // --- At or above minimum nesting level ---
+  if (node.type === "string") {
+    const rStart = node.start + 1;
+    const rEnd = Math.max(rStart, node.end - 1);
+    out.push({ startOffset: node.start, endOffset: node.end, rangeStart: rStart, rangeEnd: rEnd });
+  } else if (node.type === "number" || node.type === "true" || node.type === "false" || node.type === "null") {
+    out.push({ startOffset: node.start, endOffset: node.end, rangeStart: node.start, rangeEnd: node.end });
+  } else {
+    // Container (object or array)
+    const children = node.children || [];
+
+    if (!opts.enterNestedContainers) {
+      const rStart = node.start + 1;
+      const rEnd = Math.max(rStart, node.end - 1);
+      out.push({ startOffset: node.start, endOffset: node.end, rangeStart: rStart, rangeEnd: rEnd });
+    } else if (children.length === 0) {
+      out.push({ startOffset: node.start, endOffset: node.end, rangeStart: node.start + 1, rangeEnd: node.start + 1 });
+    } else if (!opts.iterateContainerItems) {
+      const rStart = node.start + 1;
+      const rEnd = Math.max(rStart, node.end - 1);
+      out.push({ startOffset: node.start, endOffset: node.end, rangeStart: rStart, rangeEnd: rEnd });
+    } else {
+      for (const c of children) collect(c, opts, out);
+    }
+  }
 }
 
+// ──────────────────────────────────────────────────────────
+// Position helper (cached)
+// ──────────────────────────────────────────────────────────
+
 /**
- * @param {NavValue[]} values
- * @param {number} anchorOffset
- * @returns {number}
+ * @param {vscode.TextDocument} doc
+ * @param {number} offset
+ * @returns {vscode.Position}
  */
-function findPrevIndex(values, anchorOffset) {
-  for (let i = values.length - 1; i >= 0; i--) {
-    if (values[i].endOffset < anchorOffset) return i;
+function posAt(doc, offset) {
+  let p = __posCache.get(offset);
+  if (!p) {
+    p = doc.positionAt(offset);
+    __posCache.set(offset, p);
   }
-  return -1;
+  return p;
 }
+
+// ──────────────────────────────────────────────────────────
+// JSON / JSONC tree parser
+// ──────────────────────────────────────────────────────────
+
+/**
+ * @typedef {"string"|"number"|"true"|"false"|"null"|"array"|"object"} JsonType
+ * @typedef {{ type: JsonType, start: number, end: number, depth: number, children?: JsonNode[] }} JsonNode
+ */
 
 /**
  * @param {string} text
- * @returns {{root: JsonNode | null, wrapperArray: JsonNode | null}}
+ * @returns {{ root: JsonNode | null }}
  */
 function parseJsonTree(text) {
   let i = 0;
@@ -149,315 +207,134 @@ function parseJsonTree(text) {
   const isWS = (c) => c === " " || c === "\t" || c === "\n" || c === "\r";
 
   function skipWS() {
-    while (i < n && isWS(text[i])) i++;
-  }
-
-  function parseStringBounds() {
-    const start = i;
-    if (text[i] !== '"') throw new Error("expected string");
-    i++;
-
     while (i < n) {
-      const ch = text[i];
-      if (ch === "\\") {
+      if (isWS(text[i])) { i++; continue; }
+      if (text[i] === "/" && i + 1 < n && text[i + 1] === "/") {
+        while (i < n && text[i] !== "\n" && text[i] !== "\r") i++;
+        continue;
+      }
+      if (text[i] === "/" && i + 1 < n && text[i + 1] === "*") {
+        i += 2;
+        while (i + 1 < n && !(text[i] === "*" && text[i + 1] === "/")) i++;
         i += 2;
         continue;
       }
-      if (ch === '"') {
-        i++;
-        return { start, end: i };
-      }
-      if (ch === "\n" || ch === "\r") throw new Error("invalid string");
-      i++;
+      break;
     }
-    throw new Error("unterminated string");
-  }
-
-  function parseNumberNode() {
-    const start = i;
-
-    if (text[i] === "-") i++;
-
-    if (text[i] === "0") {
-      i++;
-    } else {
-      if (!(text[i] >= "1" && text[i] <= "9")) throw new Error("invalid number");
-      while (i < n && text[i] >= "0" && text[i] <= "9") i++;
-    }
-
-    if (text[i] === ".") {
-      i++;
-      if (!(text[i] >= "0" && text[i] <= "9")) throw new Error("invalid number");
-      while (i < n && text[i] >= "0" && text[i] <= "9") i++;
-    }
-
-    if (text[i] === "e" || text[i] === "E") {
-      i++;
-      if (text[i] === "+" || text[i] === "-") i++;
-      if (!(text[i] >= "0" && text[i] <= "9")) throw new Error("invalid number");
-      while (i < n && text[i] >= "0" && text[i] <= "9") i++;
-    }
-
-    /** @type {JsonNode} */
-    const node = { type: "number", start, end: i };
-    return node;
   }
 
   /**
-   * @param {string} lit
-   * @param {"true"|"false"|"null"} type
+   * Parses a string starting at position i. Returns the end offset (exclusive).
+   * @returns {number}
+   */
+  function parseString() {
+    if (text[i] !== '"') throw new Error('Expected string at ' + i);
+    i++;
+    while (i < n) {
+      const ch = text[i];
+      if (ch === "\\") { i += 2; continue; }
+      if (ch === '"') { i++; return i; }
+      if (ch === "\n" || ch === "\r") throw new Error("Unterminated string");
+      i++;
+    }
+    throw new Error("Unterminated string");
+  }
+
+  /**
+   * @param {number} depth
    * @returns {JsonNode}
    */
-  function parseLiteral(lit, type) {
-    const start = i;
-    if (text.slice(i, i + lit.length) !== lit) throw new Error("invalid literal");
-    i += lit.length;
-    return { type, start, end: i };
-  }
-
-  function parseArrayNode() {
-    const start = i;
-    i++; // [
+  function parseValue(depth) {
     skipWS();
-
-    /** @type {JsonNode[]} */
-    const children = [];
-
-    if (text[i] === "]") {
-      i++;
-      return /** @type {JsonNode} */ ({ type: "array", start, end: i, children });
-    }
-
-    while (i < n) {
-      skipWS();
-      const v = parseValueNode();
-      children.push(v);
-      skipWS();
-
-      if (text[i] === ",") {
-        i++;
-        continue;
-      }
-      if (text[i] === "]") {
-        i++;
-        return /** @type {JsonNode} */ ({ type: "array", start, end: i, children });
-      }
-      throw new Error("invalid array");
-    }
-
-    throw new Error("unterminated array");
-  }
-
-  function parseObjectNode() {
-    const start = i;
-    i++; // {
-    skipWS();
-
-    /** @type {JsonNode[]} */
-    const children = [];
-
-    if (text[i] === "}") {
-      i++;
-      return /** @type {JsonNode} */ ({ type: "object", start, end: i, children });
-    }
-
-    while (i < n) {
-      skipWS();
-      parseStringBounds(); // key (ignored for nav targets)
-      skipWS();
-      if (text[i] !== ":") throw new Error("missing colon");
-      i++;
-      skipWS();
-
-      const val = parseValueNode();
-      children.push(val);
-
-      skipWS();
-      if (text[i] === ",") {
-        i++;
-        continue;
-      }
-      if (text[i] === "}") {
-        i++;
-        return /** @type {JsonNode} */ ({ type: "object", start, end: i, children });
-      }
-      throw new Error("invalid object");
-    }
-
-    throw new Error("unterminated object");
-  }
-
-  function parseValueNode() {
-    skipWS();
+    if (i >= n) throw new Error("Unexpected end of input");
     const ch = text[i];
 
     if (ch === '"') {
-      const s = parseStringBounds();
-      return /** @type {JsonNode} */ ({ type: "string", start: s.start, end: s.end });
+      const strStart = i;
+      const strEnd = parseString();
+      return { type: "string", start: strStart, end: strEnd, depth };
     }
-    if (ch === "{") return parseObjectNode();
-    if (ch === "[") return parseArrayNode();
-    if (ch === "t") return parseLiteral("true", "true");
-    if (ch === "f") return parseLiteral("false", "false");
-    if (ch === "n") return parseLiteral("null", "null");
-    return parseNumberNode();
+    if (ch === "{") return parseObject(depth);
+    if (ch === "[") return parseArray(depth);
+
+    if (ch === "t") { i += 4; return { type: "true",  start: i - 4, end: i, depth }; }
+    if (ch === "f") { i += 5; return { type: "false", start: i - 5, end: i, depth }; }
+    if (ch === "n") { i += 4; return { type: "null",  start: i - 4, end: i, depth }; }
+
+    // Number
+    const numStart = i;
+    if (ch === "-") i++;
+    while (i < n && text[i] >= "0" && text[i] <= "9") i++;
+    if (i < n && text[i] === ".") { i++; while (i < n && text[i] >= "0" && text[i] <= "9") i++; }
+    if (i < n && (text[i] === "e" || text[i] === "E")) {
+      i++;
+      if (i < n && (text[i] === "+" || text[i] === "-")) i++;
+      while (i < n && text[i] >= "0" && text[i] <= "9") i++;
+    }
+    return { type: "number", start: numStart, end: i, depth };
   }
-
-  skipWS();
-  if (i >= n) return { root: null, wrapperArray: null };
-  const root = parseValueNode();
-  skipWS();
-  if (i !== n) throw new Error("trailing content");
-
-  const wrapperArray = root.type === "array" ? root : null;
-  return { root, wrapperArray };
-}
-
-/**
- * @param {JsonNode} root
- * @param {{
- *   enterNestedContainers: boolean,
- *   iterateContainerItems: boolean,
- *   ignoreTopLevelArrayWrapper: boolean,
- *   wrapperArray: JsonNode | null
- * }} opts
- * @returns {NavValue[]}
- */
-function buildNavigationValues(root, opts) {
-  /** @type {NavValue[]} */
-  const out = [];
 
   /**
-   * @param {JsonNode} node
+   * @param {number} depth
+   * @returns {JsonNode}
    */
-  function visit(node) {
-    if (node.type === "object") {
-      const enterObject = opts.enterNestedContainers;
-
-      if (enterObject) {
-        // Enter object -> iterate its values.
-        // BUT if empty object, still create a stop inside {}
-        const children = node.children || [];
-        if (children.length === 0) out.push(containerInnerRange(node.start, node.end));
-        else children.forEach(visit);
-      } else {
-        // Not entering -> container itself is value target
-        out.push(containerInnerRange(node.start, node.end));
-      }
-      return;
+  function parseObject(depth) {
+    const objStart = i;
+    i++; // consume '{'
+    /** @type {JsonNode[]} */
+    const children = [];
+    skipWS();
+    if (i < n && text[i] === "}") {
+      i++;
+      return { type: "object", start: objStart, end: i, depth, children };
     }
-
-    if (node.type === "array") {
-      const isWrapper =
-        !!opts.wrapperArray &&
-        node.start === opts.wrapperArray.start &&
-        node.end === opts.wrapperArray.end;
-
-      const enterArray =
-        (opts.enterNestedContainers && opts.iterateContainerItems) ||
-        (opts.ignoreTopLevelArrayWrapper && isWrapper);
-
-      if (enterArray) {
-        // Enter array -> iterate items.
-        // BUT if empty array, still create a stop inside []
-        const children = node.children || [];
-        if (children.length === 0) out.push(containerInnerRange(node.start, node.end));
-        else children.forEach(visit);
-      } else {
-        // Not entering -> container itself is value target
-        out.push(containerInnerRange(node.start, node.end));
-      }
-      return;
+    while (i < n) {
+      skipWS();
+      if (i >= n) break;
+      parseString(); // key
+      skipWS();
+      if (text[i] !== ":") throw new Error("Expected ':' at " + i);
+      i++;
+      const child = parseValue(depth + 1);
+      children.push(child);
+      skipWS();
+      if (text[i] === ",") { i++; continue; }
+      if (text[i] === "}") { i++; break; }
+      throw new Error("Expected ',' or '}' at " + i);
     }
-
-    if (node.type === "string") {
-      out.push(stringInnerRange(node.start, node.end));
-      return;
-    }
-
-    // primitive
-    out.push(tokenRange(node.start, node.end));
+    return { type: "object", start: objStart, end: i, depth, children };
   }
 
-  visit(root);
-
-  out.sort((a, b) => a.startOffset - b.startOffset || a.endOffset - b.endOffset);
-  return out;
-}
-
-/**
- * @param {number} startOffset
- * @param {number} endOffset
- * @returns {NavValue}
- */
-function tokenRange(startOffset, endOffset) {
-  return {
-    startOffset,
-    endOffset,
-    range: {
-      start: positionAtCached(startOffset),
-      end: positionAtCached(endOffset)
+  /**
+   * @param {number} depth
+   * @returns {JsonNode}
+   */
+  function parseArray(depth) {
+    const arrStart = i;
+    i++; // consume '['
+    /** @type {JsonNode[]} */
+    const children = [];
+    skipWS();
+    if (i < n && text[i] === "]") {
+      i++;
+      return { type: "array", start: arrStart, end: i, depth, children };
     }
-  };
-}
-
-/**
- * String value: select content only. Empty => caret between quotes.
- * @param {number} startOffset quote start
- * @param {number} endOffset quote end+1
- * @returns {NavValue}
- */
-function stringInnerRange(startOffset, endOffset) {
-  const innerStart = startOffset + 1;
-  const innerEnd = Math.max(innerStart, endOffset - 1);
-  return {
-    startOffset,
-    endOffset,
-    range: {
-      start: positionAtCached(innerStart),
-      end: positionAtCached(innerEnd)
+    while (i < n) {
+      skipWS();
+      if (i >= n) break;
+      const child = parseValue(depth + 1);
+      children.push(child);
+      skipWS();
+      if (text[i] === ",") { i++; continue; }
+      if (text[i] === "]") { i++; break; }
+      throw new Error("Expected ',' or ']' at " + i);
     }
-  };
-}
-
-/**
- * Container value: select content only. Empty => caret between brackets.
- * @param {number} startOffset opening bracket
- * @param {number} endOffset closing bracket+1
- * @returns {NavValue}
- */
-function containerInnerRange(startOffset, endOffset) {
-  const innerStart = startOffset + 1;
-  const innerEnd = Math.max(innerStart, endOffset - 1);
-  return {
-    startOffset,
-    endOffset,
-    range: {
-      start: positionAtCached(innerStart),
-      end: positionAtCached(innerEnd)
-    }
-  };
-}
-
-/**
- * @param {number} offset
- * @returns {vscode.Position}
- */
-function positionAtCached(offset) {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return new vscode.Position(0, 0);
-
-  const doc = editor.document;
-
-  if (__doc !== doc || !__posCache) {
-    __doc = doc;
-    __posCache = new Map();
+    return { type: "array", start: arrStart, end: i, depth, children };
   }
 
-  const cached = __posCache.get(offset);
-  if (cached) return cached;
-
-  const p = doc.positionAt(offset);
-  __posCache.set(offset, p);
-  return p;
+  // Entry
+  skipWS();
+  if (i >= n) return { root: null };
+  const root = parseValue(0);
+  return { root };
 }

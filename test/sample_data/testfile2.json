@@ -1,0 +1,28 @@
+[
+	{
+		"user_details": {
+			"name": "Alice",
+			"active": true,
+			"management_details": {
+				"account_age": 93,
+				"roles": ["user"],
+				"previous_timeouts": [],
+				"previous_bans": []
+			}
+		},
+		"user_scores": [4, 23]
+	},
+	{
+		"user_details": {
+			"name": "John",
+			"active": true,
+			"management_details": {
+				"account_age": 1023,
+				"roles": ["user", "moderator"],
+				"previous_timeouts": [],
+				"previous_bans": []
+			}
+		},
+		"user_scores": [12, 20, 100, 200]
+	}
+]
